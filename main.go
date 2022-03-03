@@ -4,7 +4,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -13,20 +12,22 @@ import (
 )
 
 type People struct {
-	People map[int]Person `json:"people"` // (id -> Person)
+	People map[int]*Person `json:"people"` // (id -> Person)
+	MaxId  int             `json:"max_id"`
 }
 
 type Person struct {
-	Id   int          `json:"id"`
-	Name string       `json:"name"`
-	Seen map[int]bool `json:"seen"`
+	Id      int          `json:"id"`
+	Name    string       `json:"name"`
+	Seen    map[int]bool `json:"seen"`
+	Dropped bool         `json:"dropped"`
 }
 
 type Pair struct {
-	first  Person
-	second Person
+	first  *Person
+	second *Person
 	triple bool
-	third  Person // Only valid if total is odd number
+	third  *Person // Only valid if total is odd number
 }
 
 type State struct {
@@ -35,11 +36,42 @@ type State struct {
 	total_people    int
 }
 
-func load_file(filename string) (*People, error) {
+func load_roster(filePath string) ([]string, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		log.Fatal("Unable to read input file "+filePath, err)
+		return nil, err
+	}
+	defer f.Close()
+
+	csvReader := csv.NewReader(f)
+	records, err := csvReader.ReadAll()
+	if err != nil {
+		log.Fatal("Unable to parse file as CSV for "+filePath, err)
+		return nil, err
+	}
+
+	peopleName := []string{}
+
+	for _, records := range records {
+		peopleName = append(peopleName, records[0])
+	}
+
+	return peopleName, nil
+}
+
+func load_state(filename string) (*People, error) {
 	file, err := ioutil.ReadFile(filename)
 	if err != nil {
-		log.Fatal("can not read file", err)
-		return nil, err
+		if errors.Is(err, os.ErrNotExist) {
+			return &People{
+				People: map[int]*Person{},
+				MaxId:  0,
+			}, nil
+		} else {
+			log.Fatal("can not read file", err)
+			return nil, err
+		}
 	}
 
 	state := People{}
@@ -47,7 +79,7 @@ func load_file(filename string) (*People, error) {
 	return &state, nil
 }
 
-func persist_file(filename string, data *People) error {
+func persist_state(filename string, data *People) error {
 	file, err := json.MarshalIndent(data, "", " ")
 	if err != nil {
 		log.Fatal("can not marshal json", err)
@@ -63,14 +95,67 @@ func persist_file(filename string, data *People) error {
 	return nil
 }
 
-func (p People) create_starting_state() (*State, error) {
+func (p *People) update_roster(roster []string) error {
+	new_people := []*Person{}
+
+	// Identify all the new people
+	for _, name := range roster {
+		seen := false
+
+		for _, person := range p.People {
+			if person.Name == name {
+				seen = true
+				break
+			}
+		}
+
+		// New person in the roster
+		if !seen {
+			new_people = append(new_people, &Person{
+				Id:   p.MaxId + 1,
+				Name: name,
+				Seen: map[int]bool{},
+			})
+
+			p.MaxId++
+		}
+	}
+
+	// Identify all dropped individual
+	for _, person := range p.People {
+		seen := false
+
+		for _, name := range roster {
+			if person.Name == name {
+				seen = true
+				break
+			}
+		}
+
+		if !seen {
+			p.People[person.Id].Dropped = true
+		}
+	}
+
+	// Add all new people into list
+	for _, person := range new_people {
+		p.People[person.Id] = person
+	}
+
+	return nil
+}
+
+func (p *People) create_starting_state() (*State, error) {
 	people_id := []int{}
 	person_addr := make(map[int](*Person))
 
 	for _, person := range p.People {
+		if person.Dropped {
+			continue
+		}
 		people_id = append(people_id, person.Id)
 
-		person_addr[person.Id] = &person
+		person_addr[person.Id] = person
 	}
 
 	return &State{
@@ -80,9 +165,46 @@ func (p People) create_starting_state() (*State, error) {
 	}, nil
 }
 
-func (s State) valid_pair(pair *Pair) bool {
+func (p *People) updateWithState(pairs []*Pair) (*People, error) {
+	// Iterate over all pairs
+	for _, pair := range pairs {
+		// Add each pair to seen
+		person_A := p.People[pair.first.Id]
+		person_B := p.People[pair.second.Id]
+
+		person_A.Seen[person_B.Id] = true
+		person_B.Seen[person_A.Id] = true
+
+		// Hand odd case
+		if pair.triple {
+			person_C := p.People[pair.third.Id]
+
+			person_A.Seen[person_C.Id] = true
+			person_B.Seen[person_C.Id] = true
+
+			person_C.Seen[person_A.Id] = true
+			person_C.Seen[person_B.Id] = true
+		}
+	}
+
+	ret := make(map[int]*Person)
+	for id, person := range p.People {
+		ret[id] = person
+	}
+
+	return &People{
+		People: ret,
+		MaxId:  p.MaxId,
+	}, nil
+}
+
+func (s *State) valid_pair(pair *Pair) bool {
 	person_A := pair.first
 	person_B := pair.second
+
+	if person_A.Dropped || person_B.Dropped {
+		return false
+	}
 
 	if _, ok := person_A.Seen[person_B.Id]; ok {
 		return false
@@ -94,10 +216,13 @@ func (s State) valid_pair(pair *Pair) bool {
 	return true
 }
 
-func (s State) valid_triple(pair *Pair, person_C Person) bool {
+func (s *State) valid_triple(pair *Pair, person_C *Person) bool {
 	person_A := pair.first
 	person_B := pair.second
 
+	if person_C.Dropped {
+		return false
+	}
 	if _, ok := person_A.Seen[person_C.Id]; ok {
 		return false
 	}
@@ -108,7 +233,7 @@ func (s State) valid_triple(pair *Pair, person_C Person) bool {
 	return true
 }
 
-func (s State) get_successors(people *People) ([]*State, error) {
+func (s *State) get_successors(people *People) ([]*State, error) {
 	childrenState := []*State{}
 
 	// Handle odd numder of people case
@@ -147,13 +272,8 @@ func (s State) get_successors(people *People) ([]*State, error) {
 				second: person_B,
 			}
 
-			// fmt.Printf("i: %d, j: %d\n", i, j)
-			// fmt.Println(s.avail_people_id)
-			// fmt.Printf("Matched person A: %d with person B: %d\n", person_A.Id, person_B.Id)
-
 			// Verify pair has not seen each other before
 			if !s.valid_pair(pair) {
-				// fmt.Println("seen before")
 				continue
 			}
 
@@ -184,17 +304,10 @@ func run(state *State, people *People) ([]*Pair, error) {
 	// Insert current state
 	fringe.Push(state)
 
-	// tmp := 0
-
 	// Loop until empty
 	for fringe.Len() > 0 {
 		// Remove node from fringe
 		curr_state := fringe.Pop().(*State)
-
-		// fmt.Println("-------------------------------")
-		// fmt.Println("Curr State")
-		// fmt.Println(curr_state.avail_people_id)
-		// fmt.Println(curr_state.matched_pairs)
 
 		// Verify goal state
 		if len(curr_state.avail_people_id) == 0 {
@@ -208,53 +321,10 @@ func run(state *State, people *People) ([]*Pair, error) {
 		}
 
 		for _, new_state := range next_states {
-			// fmt.Println("Child State")
-			// fmt.Println(new_state.avail_people_id)
-			// fmt.Println(new_state.matched_pairs[0].first)
-			// fmt.Println(new_state.matched_pairs[0].second)
-
 			fringe.Push(new_state)
 		}
-
-		// tmp += 1
-
-		// if tmp > 0 {
-		// 	return nil, nil
-		// }
 	}
 	return nil, errors.New("no possible matches")
-}
-
-func (p People) updateWithState(pairs []*Pair) (*People, error) {
-	// Iterate over all pairs
-	for _, pair := range pairs {
-		// Add each pair to seen
-		person_A := p.People[pair.first.Id]
-		person_B := p.People[pair.second.Id]
-
-		person_A.Seen[person_B.Id] = true
-		person_B.Seen[person_A.Id] = true
-
-		// Hand odd case
-		if pair.triple {
-			person_C := p.People[pair.third.Id]
-
-			person_A.Seen[person_C.Id] = true
-			person_B.Seen[person_C.Id] = true
-
-			person_C.Seen[person_A.Id] = true
-			person_C.Seen[person_B.Id] = true
-		}
-	}
-
-	ret := make(map[int]Person)
-	for id, person := range p.People {
-		ret[id] = person
-	}
-
-	return &People{
-		People: ret,
-	}, nil
 }
 
 func pairsToCSV(filename string, pairs []*Pair) error {
@@ -269,9 +339,15 @@ func pairsToCSV(filename string, pairs []*Pair) error {
 
 	for _, pair := range pairs {
 		pair_str := []string{
-			pair.first.Name, pair.second.Name, pair.third.Name,
+			pair.first.Name, pair.second.Name, "",
 		}
-		fmt.Println(pair_str)
+
+		if pair.triple {
+			pair_str[2] = pair.third.Name
+		}
+
+		// Debugging purposes
+		// fmt.Println(pair_str)
 
 		if err := w.Write(pair_str); err != nil {
 			log.Fatalln("error writing record to file", err)
@@ -288,8 +364,21 @@ func main() {
 
 	in_file := "seen.json"
 	csv_filename := "pairing.csv"
+	rosterFilePath := "roster.csv"
 
-	people, err := load_file(in_file)
+	people, err := load_state(in_file)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
+	curr_roster, err := load_roster(rosterFilePath)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
+	err = people.update_roster(curr_roster)
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -322,7 +411,7 @@ func main() {
 	}
 
 	// Persist file
-	err = persist_file("seen.json", newBlob)
+	err = persist_state("seen.json", newBlob)
 	if err != nil {
 		log.Fatal(err)
 		return
