@@ -1,5 +1,10 @@
 package main
 
+import (
+	"math/rand"
+	"time"
+)
+
 type State struct {
 	avail_people_id []int
 	matched_pairs   []*Pair
@@ -69,6 +74,12 @@ func (s *State) get_successors(people *People) ([]*State, error) {
 
 		return childrenState, nil
 	}
+
+	// Shuffle the order of available people
+	rand.Seed(time.Now().UnixNano())
+	rand.Shuffle(len(s.avail_people_id), func(i, j int) {
+		s.avail_people_id[i], s.avail_people_id[j] = s.avail_people_id[j], s.avail_people_id[i]
+	})
 
 	for i := 0; i < len(s.avail_people_id); i++ {
 		for j := i + 1; j < len(s.avail_people_id); j++ {
