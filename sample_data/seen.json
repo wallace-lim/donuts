@@ -1,0 +1,61 @@
+{
+ "people": {
+  "1": {
+   "id": 1,
+   "name": "Alice",
+   "seen": {
+    "2": true,
+    "4": true
+   },
+   "dropped": false
+  },
+  "2": {
+   "id": 2,
+   "name": "Bob",
+   "seen": {
+    "1": true,
+    "3": true
+   },
+   "dropped": false
+  },
+  "3": {
+   "id": 3,
+   "name": "Cat",
+   "seen": {
+    "2": true,
+    "4": true,
+    "5": true
+   },
+   "dropped": false
+  },
+  "4": {
+   "id": 4,
+   "name": "David",
+   "seen": {
+    "1": true,
+    "3": true,
+    "5": true
+   },
+   "dropped": false
+  },
+  "5": {
+   "id": 5,
+   "name": "Ethan",
+   "seen": {
+    "3": true,
+    "4": true,
+    "6": true
+   },
+   "dropped": false
+  },
+  "6": {
+   "id": 6,
+   "name": "Fendy",
+   "seen": {
+    "5": true
+   },
+   "dropped": false
+  }
+ },
+ "max_id": 6
+}

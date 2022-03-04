@@ -4,7 +4,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -21,7 +20,7 @@ func load_state(filename string) (*People, error) {
 				MaxId:  0,
 			}, nil
 		} else {
-			log.Fatal("can not read file", err)
+			log.Fatalln("can not read file", err)
 			return nil, err
 		}
 	}
@@ -34,7 +33,7 @@ func load_state(filename string) (*People, error) {
 func load_roster(filePath string) ([]string, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
-		log.Fatal("Unable to read input file "+filePath, err)
+		log.Fatalln("Unable to read input file "+filePath+" ", err)
 		return nil, err
 	}
 	defer f.Close()
@@ -42,7 +41,7 @@ func load_roster(filePath string) ([]string, error) {
 	csvReader := csv.NewReader(f)
 	records, err := csvReader.ReadAll()
 	if err != nil {
-		log.Fatal("Unable to parse file as CSV for "+filePath, err)
+		log.Fatalln("Unable to parse file as CSV for "+filePath+" ", err)
 		return nil, err
 	}
 
@@ -58,7 +57,7 @@ func load_roster(filePath string) ([]string, error) {
 func load_family(filePath string) ([][]string, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
-		log.Fatal("Unable to read input file "+filePath, err)
+		log.Fatalln("Unable to read input file "+filePath+" ", err)
 		return nil, err
 	}
 	defer f.Close()
@@ -66,7 +65,7 @@ func load_family(filePath string) ([][]string, error) {
 	csvReader := csv.NewReader(f)
 	records, err := csvReader.ReadAll()
 	if err != nil {
-		log.Fatal("Unable to parse file as CSV for "+filePath, err)
+		log.Fatalln("Unable to parse file as CSV for "+filePath+" ", err)
 		return nil, err
 	}
 
@@ -83,13 +82,13 @@ func load_family(filePath string) ([][]string, error) {
 func persist_state(filename string, data *People) error {
 	file, err := json.MarshalIndent(data, "", " ")
 	if err != nil {
-		log.Fatal("can not marshal json", err)
+		log.Fatalln("can not marshal json", err)
 		return err
 	}
 
 	err = ioutil.WriteFile(filename, file, 0644)
 	if err != nil {
-		log.Fatal("can not write file", err)
+		log.Fatalln("can not write file", err)
 		return err
 	}
 
@@ -155,78 +154,77 @@ func pairsToCSV(filename string, pairs []*Pair) error {
 }
 
 func main() {
-	// args := os.Args[1:]
-	// in_file := args[1]
-	// out_file := args[2]
+	args := os.Args[1:]
 
-	directory := "data/"
-	persistFilePath := directory + "seen.json"
-	csv_filename := directory + "pairing.csv"
-	rosterFilePath := directory + "roster.csv"
-	familyFilePath := directory + "family.csv"
+	directory := "data"
+	if len(args) == 1 {
+		directory = args[0]
+	}
+	persistFilePath := directory + "/seen.json" // Persist state
+	csv_filename := directory + "/pairing.csv"  // File to write pairing to
+	rosterFilePath := directory + "/roster.csv" // File to retrieve roster
+	familyFilePath := directory + "/family.csv" // File to retrieve families on roster
 
 	people, err := load_state(persistFilePath)
 	if err != nil {
-		log.Fatal(err)
-		return
+		log.Fatalln(err)
+		panic("Unable to loead state")
 	}
 
 	curr_roster, err := load_roster(rosterFilePath)
 	if err != nil {
-		log.Fatal(err)
-		return
+		log.Fatalln(err)
+		panic("Unable to load roster")
 	}
 
 	family, err := load_family(familyFilePath)
 	if err != nil {
-		log.Fatal(err)
-		return
+		log.Fatalln(err)
+		panic("Unable to load family")
 	}
-
-	fmt.Println(family)
 
 	err = people.update_roster(curr_roster)
 	if err != nil {
-		log.Fatal(err)
-		return
+		log.Fatalln(err)
+		panic("Unable to update roster")
 	}
 
 	err = people.mark_family(family)
 	if err != nil {
-		log.Fatal(err)
-		return
+		log.Fatalln(err)
+		panic("Unable to mark family")
 	}
 
 	state, err := people.create_starting_state()
 	if err != nil {
-		log.Fatal(err)
-		return
+		log.Fatalln(err)
+		panic("Unable to create starting state")
 	}
 
 	pairs, err := run(state, people)
 	if err != nil {
-		log.Fatal(err)
-		return
+		log.Fatalln(err)
+		panic("Unable to run generation")
 	}
 
 	// Write result fixing pairs
 	err = pairsToCSV(csv_filename, pairs)
 	if err != nil {
-		log.Fatal(err)
-		return
+		log.Fatalln(err)
+		panic("Unable to convert pairs to csv")
 	}
 
 	// Update people
 	newBlob, err := people.updateWithState(pairs)
 	if err != nil {
-		log.Fatal(err)
-		return
+		log.Fatalln(err)
+		panic("Unable to update state")
 	}
 
 	// Persist file
 	err = persist_state(persistFilePath, newBlob)
 	if err != nil {
-		log.Fatal(err)
-		return
+		log.Fatalln(err)
+		panic("Unable to persist state")
 	}
 }
