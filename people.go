@@ -69,6 +69,45 @@ func (p *People) update_roster(roster []string) error {
 	return nil
 }
 
+func (p *People) mark_family(families [][]string) error {
+	// Convert names into family of ids
+	familiesIds := [][]int{}
+	for _, family := range families {
+		familyId := []int{}
+
+		for _, name := range family {
+			if name == "" {
+				continue
+			}
+
+			// Find the corresponding name
+			for _, person := range p.People {
+				if person.Name == name {
+					familyId = append(familyId, person.Id)
+					break
+				}
+			}
+		}
+
+		familiesIds = append(familiesIds, familyId)
+	}
+
+	// Mark everyone in each family as seen
+	for _, family := range familiesIds {
+		for _, id := range family {
+			person := p.People[id]
+
+			for _, new_id := range family {
+				if id != new_id {
+					person.Seen[new_id] = true
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
 func (p *People) create_starting_state() (*State, error) {
 	people_id := []int{}
 	person_addr := make(map[int](*Person))

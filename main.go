@@ -4,12 +4,32 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 
 	stack "github.com/golang-collections/collections/stack"
 )
+
+func load_state(filename string) (*People, error) {
+	file, err := ioutil.ReadFile(filename)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return &People{
+				People: map[int]*Person{},
+				MaxId:  0,
+			}, nil
+		} else {
+			log.Fatal("can not read file", err)
+			return nil, err
+		}
+	}
+
+	state := People{}
+	json.Unmarshal([]byte(file), &state)
+	return &state, nil
+}
 
 func load_roster(filePath string) ([]string, error) {
 	f, err := os.Open(filePath)
@@ -35,23 +55,29 @@ func load_roster(filePath string) ([]string, error) {
 	return peopleName, nil
 }
 
-func load_state(filename string) (*People, error) {
-	file, err := ioutil.ReadFile(filename)
+func load_family(filePath string) ([][]string, error) {
+	f, err := os.Open(filePath)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return &People{
-				People: map[int]*Person{},
-				MaxId:  0,
-			}, nil
-		} else {
-			log.Fatal("can not read file", err)
-			return nil, err
-		}
+		log.Fatal("Unable to read input file "+filePath, err)
+		return nil, err
+	}
+	defer f.Close()
+
+	csvReader := csv.NewReader(f)
+	records, err := csvReader.ReadAll()
+	if err != nil {
+		log.Fatal("Unable to parse file as CSV for "+filePath, err)
+		return nil, err
 	}
 
-	state := People{}
-	json.Unmarshal([]byte(file), &state)
-	return &state, nil
+	familes := [][]string{}
+
+	for _, records := range records {
+		family := append([]string{}, records...)
+		familes = append(familes, family)
+	}
+
+	return familes, nil
 }
 
 func persist_state(filename string, data *People) error {
@@ -133,11 +159,13 @@ func main() {
 	// in_file := args[1]
 	// out_file := args[2]
 
-	in_file := "seen.json"
-	csv_filename := "pairing.csv"
-	rosterFilePath := "roster.csv"
+	directory := "data/"
+	persistFilePath := directory + "seen.json"
+	csv_filename := directory + "pairing.csv"
+	rosterFilePath := directory + "roster.csv"
+	familyFilePath := directory + "family.csv"
 
-	people, err := load_state(in_file)
+	people, err := load_state(persistFilePath)
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -149,7 +177,21 @@ func main() {
 		return
 	}
 
+	family, err := load_family(familyFilePath)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
+	fmt.Println(family)
+
 	err = people.update_roster(curr_roster)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+
+	err = people.mark_family(family)
 	if err != nil {
 		log.Fatal(err)
 		return
@@ -182,7 +224,7 @@ func main() {
 	}
 
 	// Persist file
-	err = persist_state("seen.json", newBlob)
+	err = persist_state(persistFilePath, newBlob)
 	if err != nil {
 		log.Fatal(err)
 		return
